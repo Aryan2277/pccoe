@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underwater Plastic Detector</title>
+    <!-- 1. Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Load TensorFlow.js (the core ML library) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    
+    <!-- 3. Load the Roboflow TF.js helper library -->
+    <script src="https://cdn.jsdelivr.net/npm/@roboflow/tfjs@1.2.0/dist/roboflow.min.js"></script>
+
+    <style>
+        /* Custom styles for the file input button */
+        .file-input-button {
+            cursor: pointer;
+            padding: 0.75rem 1.5rem;
+            background-color: #3b82f6; /* bg-blue-500 */
+            color: white;
+            border-radius: 0.5rem; /* rounded-lg */
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+        .file-input-button:hover {
+            background-color: #2563eb; /* bg-blue-600 */
+        }
+        input[type="file"] {
+            display: none;
+        }
+
+        /* Simple loading spinner */
+        .loader {
+            border: 5px solid #f3f3f3; /* light grey */
+            border-top: 5px solid #3b82f6; /* blue */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen flex items-center justify-center font-sans p-4" style="font-family: 'Inter', sans-serif;">
+
+    <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl p-6 md:p-10">
+        <div class="text-center">
+            <h1 class="text-3xl font-bold text-gray-800">Underwater Plastic Detector</h1>
+            <p class="text-gray-600 mt-2">Upload an image to identify plastic waste in our oceans.</p>
+        </div>
+
+        <!-- Loading Spinner (hidden by default) -->
+        <div id="loader" class="flex-col items-center justify-center my-6 hidden">
+            <div class="loader"></div>
+            <p id="loader-text" class="text-gray-600 mt-3">Loading model...</p>
+        </div>
+
+        <!-- Uploader -->
+        <div id="uploader" class="mt-8 text-center">
+            <label for="image-upload" class="file-input-button">
+                Upload Image
+            </label>
+            <input type="file" id="image-upload" accept="image/*">
+            <p class="text-sm text-gray-500 mt-4">Your image is processed directly in your browser and is never sent to a server.</p>
+        </div>
+
+        <!-- Results Display -->
+        <div id="results-container" class="mt-6 relative" style="display: none;">
+            <!-- The original image will be shown here -->
+            <img id="original-image" class="w-full h-auto rounded-lg shadow-md" />
+            <!-- The canvas for drawing detections will be overlaid on top -->
+            <canvas id="detection-canvas" class="absolute top-0 left-0"></canvas>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // --- CONFIGURATION ---
+        // ⬇️⬇️⬇️ PASTE YOUR ROBOFLOW PUBLISHABLE KEY HERE ⬇️⬇️⬇️
+        // This should be filled in with your key already
+        const ROBOFLOW_PUBLISHABLE_KEY = "YOUR_PUBLISHABLE_KEY_HERE";
+        // ⬆️⬆️⬆️ Get this from Roboflow -> Settings -> Roboflow API ⬆️⬆️⬆️
+        
+        // These are from your model's deploy page (I've filled them in for you)
+        const ROBOFLOW_MODEL_ID = "plastic-image-detection-ivewv";
+        const ROBOFLOW_MODEL_VERSION = 1;
+
+        // Set the minimum confidence threshold for detections (0.5 = 50%)
+        const MODEL_CONFIDENCE = 0.5;
+        // --- END CONFIGURATION ---
+
+        // Get DOM elements
+        const loader = document.getElementById("loader");
+        const loaderText = document.getElementById("loader-text");
+        const uploader = document.getElementById("uploader");
+        const imageUpload = document.getElementById("image-upload");
+        const resultsContainer = document.getElementById("results-container");
+        const originalImage = document.getElementById("original-image");
+        const detectionCanvas = document.getElementById("detection-canvas");
+        const canvasCtx = detectionCanvas.getContext("2d");
+
+        let model = null;
+
+        /**
+         * Loads the Roboflow model.
+         */
+        async function loadModel() {
+            // First, check if the roboflow library is loaded
+            if (typeof roboflow === 'undefined') {
+                console.error("Roboflow library not loaded yet. Retrying...");
+                loader.style.display = "flex";
+                loaderText.textContent = "Error: Roboflow library failed to load. Refreshing in 3s...";
+                // Wait 3 seconds and retry
+                setTimeout(() => {
+                    // We'll just reload the page, it's safer
+                    window.location.reload(); 
+                }, 3000);
+                return;
+            }
+
+            if (ROBOFLOW_PUBLISHABLE_KEY === "rf_zkmOEyniiPej4S5rkSYPY87AzcE3") {
+                console.error("Please update the ROBOFLOW_PUBLISHABLE_KEY constant with your key from Roboflow.");
+                // Make the error message very obvious in the UI
+                loader.style.display = "none";
+                uploader.innerHTML = `
+                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg text-left">
+                        <p class="font-bold">Configuration Needed</p>
+                        <p class="mt-2">This error is expected! You still need to link your Roboflow API Key.</p>
+                        <ol class="list-decimal list-inside mt-3 space-y-1">
+                            <li>Go to <strong>Settings</strong> in Roboflow (left sidebar).</li>
+                            <li>Click on <strong>"Roboflow API"</strong>.</li>
+                            <li>Copy the <strong>"Publishable Key"</strong>.</li>
+                            <li>Paste the key into the <code>ROBOFLOW_PUBLISHABLE_KEY</code> variable in this file's <code>&lt;script&gt;</code> tag.</li>
+                        </ol>
+                    </div>
+                `;
+                return;
+            }
+            
+            loader.style.display = "flex";
+            loaderText.textContent = "Loading detection model...";
+            
+            try {
+                // Authenticate with Roboflow
+                await roboflow.auth({
+                    publishable_key: ROBOFLOW_PUBLISHABLE_KEY
+                });
+                
+                // Load the model
+                model = await roboflow.load({
+                    model: ROBOFLOW_MODEL_ID,
+                    version: ROBOFLOW_MODEL_VERSION,
+                    // Set configuration for the model
+                    modelConfig: {
+                        confidence: MODEL_CONFIDENCE,
+                    }
+                });
+
+                console.log("Model loaded successfully.");
+                loader.style.display = "none";
+                uploader.style.display = "block";
+            } catch (error) {
+                console.error("Failed to load model:", error);
+                loaderText.textContent = `Error loading model: ${error.message}`;
+            }
+        }
+
+        /**
+         * Handles the file upload event.
+         */
+        function handleImageUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                originalImage.src = event.target.result;
+                originalImage.onload = () => {
+                    resultsContainer.style.display = "block";
+                    detectionCanvas.style.display = "none"; 
+                    detectImage(originalImage);
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        /**
+         * Runs the loaded model on the provided image element.
+         */
+        async function detectImage(imageElement) {
+            if (!model) {
+                console.error("Model is not loaded yet.");
+                loader.style.display = "flex";
+                loaderText.textContent = "Waiting for model to finish loading...";
+                return;
+            }
+
+            loader.style.display = "flex";
+            loaderText.textContent = "Analyzing image...";
+            uploader.style.display = "none"; 
+
+            try {
+                const predictions = await model.detect(imageElement);
+                console.log("Predictions:", predictions);
+                drawBoundingBoxes(imageElement, predictions);
+            } catch (error) {
+                console.error("Detection failed:", error);
+                loaderText.textContent = `Error during detection: ${error.message}`;
+            } finally {
+                loader.style.display = "none";
+                uploader.style.display = "block"; 
+            }
+        }
+
+        /**
+         * Draws the bounding boxes and labels on the canvas.
+         */
+        function drawBoundingBoxes(image, predictions) {
+            canvasCtx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
+
+            const displayedWidth = image.clientWidth;
+            const displayedHeight = image.clientHeight;
+            const naturalWidth = image.naturalWidth;
+            const naturalHeight = image.naturalHeight;
+
+            detectionCanvas.width = displayedWidth;
+            detectionCanvas.height = displayedHeight;
+            detectionCanvas.style.display = "block"; 
+
+            const scaleX = displayedWidth / naturalWidth;
+            const scaleY = displayedHeight / naturalHeight;
+
+            canvasCtx.font = "16px 'Inter', sans-serif";
+            canvasCtx.textBaseline = "top";
+
+            predictions.forEach(p => {
+                const x = (p.bbox.x - p.bbox.width / 2) * scaleX;
+                const y = (p.bbox.y - p.bbox.height / 2) * scaleY;
+                const width = p.bbox.width * scaleX;
+                const height = p.bbox.height * scaleY;
+
+                const color = p.class.toLowerCase().includes('plastic') ? "#EF4444" : "#3B82F6"; 
+                
+                canvasCtx.strokeStyle = color;
+                canvasCtx.lineWidth = 3;
+                canvasCtx.strokeRect(x, y, width, height);
+
+                const label = `${p.class} (${Math.round(p.confidence * 100)}%)`;
+                
+                canvasCtx.fillStyle = color;
+                const textMetrics = canvasCtx.measureText(label);
+                
+                // --- FIX: Changed ctx.fillRect to canvasCtx.fillRect ---
+                canvasCtx.fillRect(x, y - 20, textMetrics.width + 8, 20); 
+                
+                canvasCtx.fillStyle = "#FFFFFF"; 
+                canvasCtx.fillText(label, x + 4, y - 18); 
+            });
+        }
+
+        // --- NEW FIX ---
+        // We will wait for the entire window, including all scripts, to load
+        // before we try to do anything. This is safer than "DOMContentLoaded".
+        window.onload = () => {
+            console.log("Window loaded, attaching listeners and loading model.");
+            imageUpload.addEventListener("change", handleImageUpload);
+            loadModel();
+        };
+
+    </script>
+</body>
+</html>
+
