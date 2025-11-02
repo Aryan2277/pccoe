@@ -203,6 +203,65 @@
             text-align: center;
         }
 
+        .report-actions {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1em;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+            margin: 0 10px;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(40, 167, 69, 0.4);
+        }
+
+        .summary-card {
+            background: linear-gradient(135deg, #fff9c4 0%, #fff59d 100%);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #fbc02d;
+        }
+
+        .summary-card h3 {
+            color: #f57f17;
+            margin-bottom: 15px;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #f57f17;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
         .detection-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -214,9 +273,24 @@
             background: linear-gradient(135deg, #e3f2fd 0%, #fff 100%);
             padding: 20px;
             border-radius: 12px;
-            border-left: 4px solid #088395;
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            border-left: 4px solid;
         }
+
+        .detection-card[data-class="can"] { border-left-color: #FF1744; }
+        .detection-card[data-class="cellphone"] { border-left-color: #FF8A80; }
+        .detection-card[data-class="electronics"] { border-left-color: #C6FF00; }
+        .detection-card[data-class="gbottle"] { border-left-color: #D84315; }
+        .detection-card[data-class="glove"] { border-left-color: #CDDC39; }
+        .detection-card[data-class="Mask"] { border-left-color: #00E5FF; }
+        .detection-card[data-class="metal"] { border-left-color: #9C27B0; }
+        .detection-card[data-class="misc"] { border-left-color: #2962FF; }
+        .detection-card[data-class="pbag"] { border-left-color: #FFEB3B; }
+        .detection-card[data-class="pbottle"] { border-left-color: #1A237E; }
+        .detection-card[data-class="plastic"] { border-left-color: #E91E63; }
+        .detection-card[data-class="rod"] { border-left-color: #FF4081; }
+        .detection-card[data-class="sunglasses"] { border-left-color: #00BCD4; }
+        .detection-card[data-class="tire"] { border-left-color: #FF6E40; }
 
         .detection-class {
             font-size: 1.2em;
@@ -361,17 +435,7 @@
             </div>
 
             <div class="info-box">
-                <strong>📌 How to use:</strong> Upload an underwater image to detect plastic waste. The AI model will identify and classify plastic objects with confidence scores.
-            </div>
-
-            <div class="warning-box">
-                <strong>⚠️ Backend Server Required!</strong><br>
-                Due to browser CORS restrictions, you need to run a backend server.<br>
-                <strong>Quick Setup:</strong><br>
-                1. Create a Python file with Flask (see instructions)<br>
-                2. Run: <code>python app.py</code><br>
-                3. Backend will run on <code>http://localhost:5000</code><br>
-                4. Make sure the "Backend Proxy URL" field above matches your server URL
+                <strong>📌 How to use:</strong> Upload an underwater image to detect plastic waste. The AI model will identify and classify plastic objects with confidence scores. You can download a detailed report after detection.
             </div>
 
             <div class="upload-section">
@@ -402,6 +466,17 @@
 
             <div class="results-section" id="resultsSection">
                 <h2 class="results-header">Detection Results</h2>
+                
+                <div class="summary-card" id="summaryCard">
+                    <h3>📊 Detection Summary</h3>
+                    <div class="summary-stats" id="summaryStats"></div>
+                </div>
+
+                <div class="report-actions">
+                    <button class="download-btn" id="downloadReportBtn">📄 Download PDF Report</button>
+                    <button class="download-btn" id="downloadImageBtn">🖼️ Download Annotated Image</button>
+                </div>
+
                 <div class="detection-grid" id="detectionGrid"></div>
             </div>
         </div>
@@ -418,9 +493,13 @@
         const errorMessage = document.getElementById('errorMessage');
         const resultsSection = document.getElementById('resultsSection');
         const detectionGrid = document.getElementById('detectionGrid');
+        const summaryStats = document.getElementById('summaryStats');
+        const downloadReportBtn = document.getElementById('downloadReportBtn');
+        const downloadImageBtn = document.getElementById('downloadImageBtn');
 
         let currentImageBase64 = null;
         let currentImage = null;
+        let currentDetections = null;
 
         // Upload area click
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -551,16 +630,27 @@
 
         function displayResults(result) {
             detectionGrid.innerHTML = '';
+            currentDetections = result;
 
             if (!result.predictions || result.predictions.length === 0) {
                 resultsSection.style.display = 'block';
+                document.getElementById('summaryCard').style.display = 'none';
+                document.querySelector('.report-actions').style.display = 'none';
                 detectionGrid.innerHTML = '<div class="detection-card" style="grid-column: 1/-1; text-align: center;"><p>No plastic detected in this image! 🎉</p></div>';
                 return;
             }
 
+            // Draw bounding boxes on canvas
+            drawBoundingBoxes(result.predictions);
+
+            // Show summary statistics
+            displaySummary(result.predictions);
+
+            // Display detection cards
             result.predictions.forEach((prediction, index) => {
                 const card = document.createElement('div');
                 card.className = 'detection-card';
+                card.setAttribute('data-class', prediction.class);
                 card.innerHTML = `
                     <div class="detection-class">${prediction.class}</div>
                     <div class="detection-confidence">Confidence: ${(prediction.confidence * 100).toFixed(1)}%</div>
@@ -571,7 +661,239 @@
                 detectionGrid.appendChild(card);
             });
 
+            document.getElementById('summaryCard').style.display = 'block';
+            document.querySelector('.report-actions').style.display = 'block';
             resultsSection.style.display = 'block';
+        }
+
+        function displaySummary(predictions) {
+            const totalDetections = predictions.length;
+            const avgConfidence = (predictions.reduce((sum, p) => sum + p.confidence, 0) / totalDetections * 100).toFixed(1);
+            
+            // Count unique classes
+            const classes = {};
+            predictions.forEach(p => {
+                classes[p.class] = (classes[p.class] || 0) + 1;
+            });
+            const uniqueClasses = Object.keys(classes).length;
+
+            summaryStats.innerHTML = `
+                <div class="stat-item">
+                    <div class="stat-value">${totalDetections}</div>
+                    <div class="stat-label">Total Detections</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${uniqueClasses}</div>
+                    <div class="stat-label">Plastic Types</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${avgConfidence}%</div>
+                    <div class="stat-label">Avg Confidence</div>
+                </div>
+            `;
+        }
+
+        // Download annotated image
+        downloadImageBtn.addEventListener('click', () => {
+            const canvas = imageCanvas;
+            const link = document.createElement('a');
+            link.download = `plastic_detection_${Date.now()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        });
+
+        // Download PDF report
+        downloadReportBtn.addEventListener('click', () => {
+            generatePDFReport();
+        });
+
+        function generatePDFReport() {
+            if (!currentDetections || !currentDetections.predictions) {
+                showError('No detection data available');
+                return;
+            }
+
+            const predictions = currentDetections.predictions;
+            const totalDetections = predictions.length;
+            const avgConfidence = (predictions.reduce((sum, p) => sum + p.confidence, 0) / totalDetections * 100).toFixed(1);
+            
+            // Count classes
+            const classes = {};
+            predictions.forEach(p => {
+                classes[p.class] = (classes[p.class] || 0) + 1;
+            });
+
+            // Generate HTML report
+            let reportHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Underwater Plastic Detection Report</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 40px; }
+                        .header { text-align: center; color: #0a4d68; border-bottom: 3px solid #088395; padding-bottom: 20px; }
+                        .summary { background: #e3f2fd; padding: 20px; margin: 20px 0; border-radius: 8px; }
+                        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0; }
+                        .stat-box { text-align: center; background: white; padding: 15px; border-radius: 8px; }
+                        .stat-value { font-size: 2em; font-weight: bold; color: #088395; }
+                        .stat-label { color: #666; margin-top: 5px; }
+                        .detections { margin-top: 30px; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+                        th { background: #088395; color: white; }
+                        .footer { margin-top: 40px; text-align: center; color: #666; font-size: 0.9em; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1>🌊 Underwater Plastic Detection Report</h1>
+                        <p>Generated on ${new Date().toLocaleString()}</p>
+                    </div>
+                    
+                    <div class="summary">
+                        <h2>📊 Summary Statistics</h2>
+                        <div class="stat-grid">
+                            <div class="stat-box">
+                                <div class="stat-value">${totalDetections}</div>
+                                <div class="stat-label">Total Detections</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value">${Object.keys(classes).length}</div>
+                                <div class="stat-label">Plastic Types</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value">${avgConfidence}%</div>
+                                <div class="stat-label">Average Confidence</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detections">
+                        <h2>🔍 Detected Objects</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Class</th>
+                                    <th>Confidence</th>
+                                    <th>Position (x, y)</th>
+                                    <th>Size (w × h)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${predictions.map((p, i) => `
+                                    <tr>
+                                        <td>${i + 1}</td>
+                                        <td><strong>${p.class}</strong></td>
+                                        <td>${(p.confidence * 100).toFixed(1)}%</td>
+                                        <td>(${Math.round(p.x)}, ${Math.round(p.y)})</td>
+                                        <td>${Math.round(p.width)} × ${Math.round(p.height)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="detections">
+                        <h2>📈 Class Distribution</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Plastic Type</th>
+                                    <th>Count</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(classes).map(([className, count]) => `
+                                    <tr>
+                                        <td><strong>${className}</strong></td>
+                                        <td>${count}</td>
+                                        <td>${((count / totalDetections) * 100).toFixed(1)}%</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="footer">
+                        <p>Report generated by Underwater Plastic Detection System</p>
+                        <p>Powered by Roboflow AI</p>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            // Create blob and download
+            const blob = new Blob([reportHTML], { type: 'text/html' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `plastic_detection_report_${Date.now()}.html`;
+            link.click();
+        }
+
+        function drawBoundingBoxes(predictions) {
+            const canvas = imageCanvas;
+            const ctx = canvas.getContext('2d');
+            
+            // Redraw original image
+            ctx.drawImage(currentImage, 0, 0);
+
+            // Define colors for each class (matching your dataset)
+            const classColors = {
+                'can': '#FF1744',           // Red
+                'cellphone': '#FF8A80',     // Light Red
+                'electronics': '#C6FF00',   // Yellow-Green
+                'gbottle': '#D84315',       // Brown/Orange
+                'glove': '#CDDC39',         // Lime
+                'Mask': '#00E5FF',          // Cyan
+                'metal': '#9C27B0',         // Purple
+                'misc': '#2962FF',          // Blue
+                'pbag': '#FFEB3B',          // Yellow
+                'pbottle': '#1A237E',       // Dark Blue
+                'plastic': '#E91E63',       // Pink
+                'rod': '#FF4081',           // Hot Pink
+                'sunglasses': '#00BCD4',    // Turquoise
+                'tire': '#FF6E40'           // Orange
+            };
+
+            predictions.forEach((prediction, index) => {
+                const x = prediction.x - prediction.width / 2;
+                const y = prediction.y - prediction.height / 2;
+                const width = prediction.width;
+                const height = prediction.height;
+                
+                // Get color for this class, or use default
+                const color = classColors[prediction.class] || '#9D4EDD';
+
+                // Draw bounding box with thicker lines
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, width, height);
+
+                // Draw label
+                const label = `${prediction.class}`;
+                const confidence = `${(prediction.confidence * 100).toFixed(1)}%`;
+                
+                ctx.font = 'bold 18px Arial';
+                const labelWidth = ctx.measureText(label).width;
+                const confWidth = ctx.measureText(confidence).width;
+                const maxWidth = Math.max(labelWidth, confWidth);
+                
+                // Draw semi-transparent background for label
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(x, y - 50, maxWidth + 20, 48);
+
+                // Draw label text
+                ctx.fillStyle = color;
+                ctx.fillText(label, x + 10, y - 25);
+                
+                // Draw confidence
+                ctx.font = '14px Arial';
+                ctx.fillStyle = 'white';
+                ctx.fillText(confidence, x + 10, y - 8);
+            });
         }
 
         function showError(message) {
